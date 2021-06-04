@@ -282,6 +282,8 @@ class BacktestingEngine:
         ix = 0
 
         for ix, data in enumerate(self.history_data):
+            if self.days == 0:
+                break
             if self.datetime and data.datetime.day != self.datetime.day:
                 day_count += 1
                 if day_count >= self.days:
@@ -305,7 +307,7 @@ class BacktestingEngine:
 
         # Use the rest of history data for running backtesting
         backtesting_data = self.history_data[ix + 1:]
-        if not backtesting_data:
+        if len(backtesting_data)==0:
             self.output("历史数据不足，回测终止")
             return
 
