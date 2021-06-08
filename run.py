@@ -9,6 +9,7 @@ from vnpy.app.data_recorder import DataRecorderApp
 from vnpy.trader.constant import Exchange
 from vnpy.trader.object import TickData
 from vnpy.trader.database import database_manager
+import numpy as np
 import os
 import sys
 import csv
@@ -18,7 +19,8 @@ from vnpy.app.cta_strategy.backtesting import BacktestingEngine, OptimizationSet
 from vnpy.app.cta_strategy.base import BacktestingMode
 from vnpy.app.cta_strategy.strategies.atr_rsi_strategy import AtrRsiStrategy
 from strategies.test import TestStrategy
-
+import matplotlib.pyplot as plt
+from datetime import datetime
 
 class MyTickData(TickData):
     
@@ -120,19 +122,24 @@ engine = BacktestingEngine()
 engine.set_parameters(
     vt_symbol="BTC.BINANCE",
     interval="1m",
-    start=datetime.datetime(2020,5,19),
-    end=datetime.datetime(2021,5,22),
+    start=datetime(2020,5,19),
+    end=datetime(2021,5,22),
     rate=0.5/10000,
     slippage=5,
     size=.1,
     pricetick=5,
     capital=100000,
     mode=BacktestingMode.TICK,
+    inverse=True,
 )
 engine.add_strategy(TestStrategy,{})
 # engine.load_data()
 engine.history_data = data
 engine.run_backtesting()
-df = engine.calculate_result()
-engine.calculate_statistics()
+# df = engine.calculate_result()
+# engine.calculate_statistics()
 # engine.show_chart()
+
+pd.set_option('mode.chained_assignment', None)
+
+engine.exhaust_trade_result(engine.trades)
