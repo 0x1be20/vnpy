@@ -4,6 +4,7 @@ from typing import Callable
 from itertools import product
 from functools import lru_cache
 from time import time
+import math
 import multiprocessing
 import random
 import traceback
@@ -331,7 +332,9 @@ class BacktestingEngine:
             progress_bar = "=" * (ix + 1)
             self.output(f"回放进度：{progress_bar} [{progress:.0%}]")
 
-        self.strategy.on_stop()
+        # 最后平仓
+        self.close_all_position()
+        self.strategy.on_stop()        
         self.output("历史数据回放结束")
 
     def calculate_result(self):
@@ -784,7 +787,7 @@ class BacktestingEngine:
         if daily_result:
             daily_result.close_price = price
         else:
-            self.daily_results[d] = DailyResult(d, price)
+            self.daily_results[d] = DailyResult(d, price, price)
 
     def new_bar(self, bar: BarData):
         """"""
@@ -807,6 +810,40 @@ class BacktestingEngine:
         self.strategy.on_tick(tick)
 
         self.update_daily_close(tick.last_price)
+
+    def close_all_position(self):
+        if not math.isclose(self.strategy.pos,0,abs_tol=1e-9):
+            self.trade_count += 1
+            if self.strategy.pos>0:
+                trade = TradeData(
+                    symbol=self.symbol,
+                    exchange=self.exchange,
+                    orderid="final",
+                    tradeid=str(self.trade_count),
+                    direction=Direction.SHORT,
+                    offset=Offset.CLOSE,
+                    price=self.tick.bid_price_1,
+                    volume=abs(self.strategy.pos),
+                    datetime=self.datetime,
+                    gateway_name=self.gateway_name,
+                )
+                self.trades[trade.vt_tradeid] = trade
+                self.pos = 0
+            else:
+                trade = TradeData(
+                    symbol=self.symbol,
+                    exchange=self.exchange,
+                    orderid="final",
+                    tradeid=str(self.trade_count),
+                    direction=Direction.LONG,
+                    offset=Offset.CLOSE,
+                    price=self.tick.ask_price_1,
+                    volume=abs(self.strategy.pos),
+                    datetime=self.datetime,
+                    gateway_name=self.gateway_name,
+                )
+                self.trades[trade.vt_tradeid] = trade
+                self.pos = 0
 
     def cross_limit_order(self):
         """
@@ -1196,23 +1233,26 @@ class BacktestingEngine:
         df["acum_result"] = df["result"].cumsum()
         # Filter column data when net pos comes to zero
         def get_acum_trade_result(df):
-            if df["net_pos"] == 0:
+            if math.isclose(df["net_pos"],0,abs_tol=1e-9):
                 return df["acum_result"]
         df["acum_trade_result"] = df.apply(get_acum_trade_result, axis=1)
         def get_acum_trade_volume(df):
-            if df["net_pos"] == 0:
+            if math.isclose(df["net_pos"], 0,abs_tol=1e-9):
                 return df["acum_pos"]
         df["acum_trade_volume"] = df.apply(get_acum_trade_volume, axis=1)   
         def get_acum_trade_duration(df):
-            if df["net_pos"] == 0:
+            if math.isclose(df["net_pos"], 0,abs_tol=1e-9):
                 return df["current_time"] - df["last_time"]
         df["acum_trade_duration"] = df.apply(get_acum_trade_duration, axis=1)  
         def get_acum_trade_amount(df):
-            if df["net_pos"] == 0:
+            if math.isclose(df["net_pos"], 0,abs_tol=1e-9):
                 return df["acum_amount"]
         df["acum_trade_amount"] = df.apply(get_acum_trade_amount, axis=1) 
-        # Select row data with net pos equil to zero     
-        df = df.dropna()
+        # Select row data with net pos equil to zero 
+          
+        # df = df.dropna()
+        df['selected'] = df.apply(lambda x:1 if math.isclose(x['net_pos'],0,abs_tol=1e-9) else 0,axis=1)
+        df = df.loc[df['selected']==1]
         return df
 
     def generate_trade_df(self,trades, size, rate, slippage, capital):
@@ -1275,6 +1315,9 @@ class BacktestingEngine:
 
     def statistics_trade_result(self,df, capital, show_chart=True):
         """"""
+        if df.empty:
+            self.output(f"无交易")
+            return
         end_balance = df["balance"].iloc[-1]
         max_drawdown = df["drawdown"].min()
         max_ddpercent = df["ddpercent"].min()
@@ -1351,28 +1394,29 @@ class BacktestingEngine:
         """
         Exhaust all trade result.
         """
-        total_trades = self.generate_trade_df(trades, size, rate, slippage, capital)
-        self.statistics_trade_result(total_trades, capital)
+        total_trades = self.generate_trade_df(trades, self.size, self.rate, self.slippage, self.capital)
+        self.statistics_trade_result(total_trades, self.capital)
         if not show_long_short_condition:
             return
-        long_trades = self.buy2sell(total_trades, capital)
-        short_trades = self.short2cover(total_trades, capital)
+        long_trades = self.buy2sell(total_trades, self.capital)
+        short_trades = self.short2cover(total_trades, self.capital)
         self.output("-----------------------")
         self.output("纯多头交易")
-        self.statistics_trade_result(long_trades, capital)
+        self.statistics_trade_result(long_trades, self.capital)
         self.output("-----------------------")
         self.output("纯空头交易")
-        self.statistics_trade_result(short_trades, capital)
+        self.statistics_trade_result(short_trades, self.capital)
 
 
 
 class DailyResult:
     """"""
 
-    def __init__(self, date: date, close_price: float):
+    def __init__(self, date: date, close_price: float,start_price:float=0):
         """"""
         self.date = date
         self.close_price = close_price
+        self.start_price = start_price
         self.pre_close = 0
 
         self.trades = []
@@ -1409,7 +1453,7 @@ class DailyResult:
         if pre_close:
             self.pre_close = pre_close
         else:
-            self.pre_close = 1
+            self.pre_close = 1 if self.start_price == 0 else self.start_price
 
         # Holding pnl is the pnl from holding position at day start
         self.start_pos = start_pos
