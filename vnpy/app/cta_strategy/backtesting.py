@@ -885,7 +885,6 @@ class BacktestingEngine:
             # Push order udpate with status "all traded" (filled).
             order.traded = order.volume
             order.status = Status.ALLTRADED
-            self.strategy.on_order(order)
 
             self.active_limit_orders.pop(order.vt_orderid)
 
@@ -913,9 +912,11 @@ class BacktestingEngine:
             )
 
             self.strategy.pos += pos_change
+            self.trades[trade.vt_tradeid] = trade
+
+            self.strategy.on_order(order)
             self.strategy.on_trade(trade)
 
-            self.trades[trade.vt_tradeid] = trade
 
     def cross_stop_order(self):
         """
@@ -998,11 +999,12 @@ class BacktestingEngine:
             if stop_order.stop_orderid in self.active_stop_orders:
                 self.active_stop_orders.pop(stop_order.stop_orderid)
 
+            self.strategy.pos += pos_change
+
             # Push update to strategy.
             self.strategy.on_stop_order(stop_order)
             self.strategy.on_order(order)
 
-            self.strategy.pos += pos_change
             self.strategy.on_trade(trade)
 
     def load_bar(
