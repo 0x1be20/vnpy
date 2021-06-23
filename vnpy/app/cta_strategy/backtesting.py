@@ -595,7 +595,7 @@ class BacktestingEngine:
         fig.update_layout(height=1000, width=1000)
         fig.show()
 
-    def run_optimization(self, optimization_setting: OptimizationSetting, output=True):
+    def run_optimization(self, optimization_setting: OptimizationSetting, output=True,history_data = None):
         """"""
         # Get optimization setting and target
         settings = optimization_setting.generate_setting()
@@ -630,7 +630,8 @@ class BacktestingEngine:
                 self.capital,
                 self.end,
                 self.mode,
-                self.inverse
+                self.inverse,
+                history_data,
             )))
             results.append(result)
 
@@ -822,7 +823,7 @@ class BacktestingEngine:
                     tradeid=str(self.trade_count),
                     direction=Direction.SHORT,
                     offset=Offset.CLOSE,
-                    price=self.tick.bid_price_1,
+                    price=self.tick.bid_price_1 if self.mode==BacktestingMode.TICK else self.bar.close_price,
                     volume=abs(self.strategy.pos),
                     datetime=self.datetime,
                     gateway_name=self.gateway_name,
@@ -837,7 +838,7 @@ class BacktestingEngine:
                     tradeid=str(self.trade_count),
                     direction=Direction.LONG,
                     offset=Offset.CLOSE,
-                    price=self.tick.ask_price_1,
+                    price=self.tick.ask_price_1 if self.mode==BacktestingMode.TICK else self.bar.close_price,
                     volume=abs(self.strategy.pos),
                     datetime=self.datetime,
                     gateway_name=self.gateway_name,
@@ -1513,7 +1514,8 @@ def optimize(
     capital: int,
     end: datetime,
     mode: BacktestingMode,
-    inverse: bool
+    inverse: bool,
+    history_data=None
 ):
     """
     Function for running in multiprocessing.pool
@@ -1535,7 +1537,10 @@ def optimize(
     )
 
     engine.add_strategy(strategy_class, setting)
-    engine.load_data()
+    if history_data is not None:
+        engine.history_data = history_data
+    else:
+        engine.load_data()
     engine.run_backtesting()
     engine.calculate_result()
     statistics = engine.calculate_statistics(output=False)
